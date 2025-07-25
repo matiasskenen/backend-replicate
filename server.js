@@ -164,3 +164,25 @@ app.post("/delete", (req, res) => {
   }
 });
 
+app.get('/can-generate/:userId', (req, res) => {
+  const { userId } = req.params;
+  if (!userId) return res.status(400).json({ error: 'Falta userId' });
+
+  const historial = historyByUser[userId] || [];
+
+  const hoy = new Date();
+  hoy.setHours(0, 0, 0, 0);
+  const hoyTimestamp = hoy.getTime();
+
+  const generadasHoy = historial.filter(img => img.timestamp >= hoyTimestamp);
+
+  const limite = 3; // máx. gratuito diario
+  const restantes = limite - generadasHoy.length;
+
+  res.json({
+    allowed: restantes > 0,
+    restantes: restantes > 0 ? restantes : 0,
+  });
+});
+
+
