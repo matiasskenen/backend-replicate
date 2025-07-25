@@ -32,17 +32,17 @@ app.post("/generate", async (req, res) => {
         Authorization: `Token ${process.env.REPLICATE_API_TOKEN}`,
         "Content-Type": "application/json",
       },
-        body: JSON.stringify({
-          version: "db21e45a84a5c33f91b4c4f3e3ef1dfb160b8f6313f781f31e75d5f4f692d8b6",
-          input: {
-            prompt: prompt,
-            negative_prompt: "human skin, human face, realistic human, human hands",
-            width: 768,
-            height: 768,
-            guidance_scale: 7.5,
-            num_inference_steps: 50
-          }
-        }),
+      body: JSON.stringify({
+        version: "ac732df83cea7fff18b8472768c88ad041fa750ff7682a21affe81863cbe77e4", // ✅ versión SDXL pública
+        input: {
+          prompt,
+          negative_prompt: "human skin, human face, realistic human, human hands",
+          width: 768,
+          height: 768,
+          guidance_scale: 7.5,
+          num_inference_steps: 50
+        }
+      }),
     });
 
     const data = await response.json();
