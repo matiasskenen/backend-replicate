@@ -10,20 +10,32 @@ dotenv.config();
 const app = express();
 app.use(cors());
 app.use(express.json());
-
-// Middleware para exponer imágenes guardadas
 app.use("/output", express.static("output"));
 
-// Historial global separado por usuario (temporal en RAM)
 const historyByUser = {};
 
-// Endpoint para generar imagen
+// 🧠 Plantillas de prompt por estilo
+const styleTemplates = {
+  "Realista": (text) =>
+    `photo-realistic render of ${text}, studio lighting, 8k, no text, no humans, ultra detail`,
+  "Cuento infantil": (text) =>
+    `storybook illustration of ${text}, colorful, watercolor, children's book style, soft light, no text, no humans`,
+  "Surrealista": (text) =>
+    `surrealist painting of ${text}, dreamlike composition, Salvador Dalí style, vivid colors, no humans, no text`,
+};
+
+// 🧠 Negative prompt común
+const negativePrompt = "realistic human, skin, face, text, watermark";
+
 app.post("/generate", async (req, res) => {
-  const { prompt, userId } = req.body;
+  const { prompt, userId, style } = req.body;
 
   if (!prompt || !userId) {
     return res.status(400).json({ error: "Faltan datos: prompt o userId" });
   }
+
+  const buildPrompt = styleTemplates[style] || ((t) => t);
+  const finalPrompt = buildPrompt(prompt);
 
   try {
     const response = await fetch("https://api.replicate.com/v1/predictions", {
@@ -33,15 +45,15 @@ app.post("/generate", async (req, res) => {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        version: "ac732df83cea7fff18b8472768c88ad041fa750ff7682a21affe81863cbe77e4", // ✅ versión SDXL pública
+        version: "ac732df83cea7fff18b8472768c88ad041fa750ff7682a21affe81863cbe77e4",
         input: {
-          prompt,
-          negative_prompt: "human skin, human face, realistic human, human hands",
+          prompt: finalPrompt,
+          negative_prompt: negativePrompt,
           width: 768,
           height: 768,
           guidance_scale: 7.5,
-          num_inference_steps: 50
-        }
+          num_inference_steps: 50,
+        },
       }),
     });
 
@@ -68,24 +80,20 @@ app.post("/generate", async (req, res) => {
     const imageUrl = result?.output?.[0];
 
     if (!imageUrl || typeof imageUrl !== "string" || !imageUrl.startsWith("http")) {
-      console.error("🛑 Imagen no generada - respuesta final:", JSON.stringify(result, null, 2));
-      return res.status(500).json({ error: "No se generó una imagen válida", detail: result });
+      console.error("🛑 Imagen no generada:", JSON.stringify(result, null, 2));
+      return res.status(500).json({ error: "No se generó imagen válida", detail: result });
     }
 
-    // Descargar imagen
     const imageBuffer = await (await fetch(imageUrl)).buffer();
-
-    if (!imageBuffer || !imageBuffer.length) {
+    if (!imageBuffer?.length) {
       return res.status(500).json({ error: "La imagen descargada está vacía" });
     }
 
-    // Guardar localmente
     fs.mkdirSync("output", { recursive: true });
     const filename = `image_${Date.now()}.jpg`;
     const filepath = path.join("output", filename);
     fs.writeFileSync(filepath, imageBuffer);
 
-    // Guardar en historial (en memoria por usuario)
     if (!historyByUser[userId]) {
       historyByUser[userId] = [];
     }
@@ -108,7 +116,6 @@ app.post("/generate", async (req, res) => {
   }
 });
 
-// Endpoint para historial por usuario
 app.get("/history/:userId", (req, res) => {
   const userId = req.params.userId;
   res.json(historyByUser[userId] || []);
