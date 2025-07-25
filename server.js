@@ -144,20 +144,30 @@ app.get('/can-generate/:userId', async (req, res) => {
   if (!userId) return res.status(400).json({ error: 'Falta userId' });
 
   const hoy = new Date();
-  hoy.setHours(0, 0, 0, 0);
+  hoy.setHours(0, 0, 0, 0); // comienzo del día
   const fechaISO = hoy.toISOString();
 
-  const { count, error } = await supabase
+  const { count, error: histError } = await supabase
     .from('historial')
     .select('*', { count: 'exact', head: true })
     .eq('user_id', userId)
     .gte('created_at', fechaISO);
 
-  if (error) {
+  if (histError) {
+    console.error('❌ Error al consultar historial:', histError.message);
     return res.status(500).json({ error: 'Error al consultar historial' });
   }
 
-  const limite = 3;
+  // Buscar bonus
+  const { data: bonusData, error: bonusError } = await supabase
+    .from('bonus_generaciones')
+    .select('bonus')
+    .eq('user_id', userId)
+    .single();
+
+  const bonus = bonusData?.bonus || 0;
+
+  const limite = 3 + bonus;
   const restantes = Math.max(0, limite - count);
 
   res.json({
@@ -165,6 +175,7 @@ app.get('/can-generate/:userId', async (req, res) => {
     restantes,
   });
 });
+
 
 // BORRAR IMAGEN (local y Supabase)
 app.post("/delete", async (req, res) => {
