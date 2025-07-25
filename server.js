@@ -36,7 +36,7 @@ app.post("/generate", async (req, res) => {
           version: "db21e45a84a5c33f91b4c4f3e3ef1dfb160b8f6313f781f31e75d5f4f692d8b6",
           input: {
             prompt: prompt,
-            negative_prompt: "human, man, woman, realistic human face, skin, beard, person, hands",
+            negative_prompt: "human skin, human face, realistic human, human hands",  
             width: 768,
             height: 768,
             guidance_scale: 7.5,
