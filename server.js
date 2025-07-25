@@ -180,11 +180,12 @@ app.post('/sumar-bonus', async (req, res) => {
   const { userId } = req.body;
   if (!userId) return res.status(400).json({ error: 'Falta userId' });
 
+  const hoy = new Date().toISOString().slice(0, 10); // 'YYYY-MM-DD'
+
   try {
-    // Leer el bonus actual
     const { data, error: fetchError } = await supabase
       .from('bonus_generaciones')
-      .select('bonus')
+      .select('bonus, fecha')
       .eq('user_id', userId)
       .single();
 
@@ -193,11 +194,18 @@ app.post('/sumar-bonus', async (req, res) => {
       return res.status(500).json({ error: 'Error al obtener bonus' });
     }
 
-    const nuevoBonus = (data?.bonus || 0) + 1;
+    let nuevoBonus = 1;
+
+    if (data?.fecha === hoy) {
+      nuevoBonus = (data.bonus || 0) + 1;
+    }
 
     const { error: upsertError } = await supabase
       .from('bonus_generaciones')
-      .upsert({ user_id: userId, bonus: nuevoBonus }, { onConflict: 'user_id' });
+      .upsert(
+        { user_id: userId, bonus: nuevoBonus, fecha: hoy },
+        { onConflict: 'user_id' }
+      );
 
     if (upsertError) {
       console.error('❌ Error al actualizar bonus:', upsertError.message);
@@ -210,6 +218,7 @@ app.post('/sumar-bonus', async (req, res) => {
     res.status(500).json({ error: 'Error inesperado' });
   }
 });
+
 
 
 
