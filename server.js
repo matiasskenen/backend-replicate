@@ -125,3 +125,29 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`✅ Servidor escuchando en http://localhost:${PORT}`);
 });
+
+
+app.post("/delete", (req, res) => {
+  const { userId, savedAs } = req.body;
+
+  if (!userId || !savedAs) {
+    return res.status(400).json({ error: "Faltan datos: userId o savedAs" });
+  }
+
+  const filePath = path.join("output", savedAs);
+
+  try {
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+    }
+
+    if (historyByUser[userId]) {
+      historyByUser[userId] = historyByUser[userId].filter(img => img.savedAs !== savedAs);
+    }
+
+    res.json({ message: "Imagen eliminada correctamente" });
+  } catch (err) {
+    console.error("❌ Error al eliminar imagen:", err);
+    res.status(500).json({ error: "Error al eliminar la imagen" });
+  }
+});
