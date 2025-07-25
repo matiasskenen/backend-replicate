@@ -176,6 +176,23 @@ app.get('/can-generate/:userId', async (req, res) => {
   });
 });
 
+app.post('/sumar-bonus', async (req, res) => {
+  const { userId } = req.body;
+  if (!userId) return res.status(400).json({ error: 'Falta userId' });
+
+  const { error } = await supabase
+    .from('bonus_generaciones')
+    .upsert({ user_id: userId, bonus: 1 }, { onConflict: 'user_id' });
+
+  if (error) {
+    console.error('❌ Error al actualizar bonus:', error.message);
+    return res.status(500).json({ error: 'Error al guardar bonus' });
+  }
+
+  res.json({ message: 'Bonus actualizado' });
+});
+
+
 
 // BORRAR IMAGEN (local y Supabase)
 app.post("/delete", async (req, res) => {
