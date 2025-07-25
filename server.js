@@ -14,6 +14,8 @@ const supabase = createClient(
 );
 
 const app = express();
+const baseUrl = 'https://backend-replicate-ekci.onrender.com';
+
 app.use(cors());
 app.use(express.json());
 app.use("/output", express.static("output"));
@@ -100,7 +102,7 @@ app.post("/generate", async (req, res) => {
     const { error } = await supabase.from("historial").insert([
       {
         prompt,
-        image_url: `/output/${filename}`, // tu backend lo sirve
+        image_url: `${baseUrl}/output/${filename}`,
         user_id: userId,
         created_at: new Date().toISOString(),
       },
@@ -112,7 +114,7 @@ app.post("/generate", async (req, res) => {
 
     res.json({
       message: "Imagen generada correctamente",
-      imageUrl: `/output/${filename}`,
+      imageUrl: `${baseUrl}/output/${filename}`,
       savedAs: filename,
     });
   } catch (err) {
