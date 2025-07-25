@@ -40,6 +40,9 @@ app.post("/generate", async (req, res) => {
 
     const data = await response.json();
 
+
+    console.log("🔍 Respuesta de Replicate:", data);
+
     if (!data?.urls?.get) {
       return res.status(500).json({ error: "Fallo al crear la predicción", detail: data });
     }
