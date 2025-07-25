@@ -4,17 +4,20 @@ import cors from "cors";
 import fetch from "node-fetch";
 import fs from "fs";
 import path from "path";
+import { createClient } from '@supabase/supabase-js';
 
 dotenv.config();
+
+const supabase = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_ROLE_KEY // ⚠️ Debe ser la service role key
+);
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 app.use("/output", express.static("output"));
 
-const historyByUser = {};
-
-// 🧠 Plantillas de prompt por estilo
 const styleTemplates = {
   "Realista": (text) =>
     `photo-realistic render of ${text}, studio lighting, 8k, no text, no humans, ultra detail`,
@@ -24,9 +27,9 @@ const styleTemplates = {
     `surrealist painting of ${text}, dreamlike composition, Salvador Dalí style, vivid colors, no humans, no text`,
 };
 
-// 🧠 Negative prompt común
 const negativePrompt = "realistic human, skin, face, text, watermark";
 
+// GENERACIÓN
 app.post("/generate", async (req, res) => {
   const { prompt, userId, style } = req.body;
 
@@ -58,12 +61,11 @@ app.post("/generate", async (req, res) => {
     });
 
     const data = await response.json();
-    console.log("🔍 Respuesta de Replicate:", data);
-
     if (!data?.urls?.get) {
-      return res.status(500).json({ error: "Fallo al crear la predicción", detail: data });
+      return res.status(500).json({ error: "Fallo al crear predicción", detail: data });
     }
 
+    // Esperar resultado
     let result;
     let tries = 0;
     while (!result?.output?.[0] && tries < 20) {
@@ -78,37 +80,40 @@ app.post("/generate", async (req, res) => {
     }
 
     const imageUrl = result?.output?.[0];
-
     if (!imageUrl || typeof imageUrl !== "string" || !imageUrl.startsWith("http")) {
-      console.error("🛑 Imagen no generada:", JSON.stringify(result, null, 2));
-      return res.status(500).json({ error: "No se generó imagen válida", detail: result });
+      return res.status(500).json({ error: "Imagen inválida", detail: result });
     }
 
+    // Descargar imagen
     const imageBuffer = await (await fetch(imageUrl)).buffer();
     if (!imageBuffer?.length) {
       return res.status(500).json({ error: "La imagen descargada está vacía" });
     }
 
+    // Guardar archivo localmente
     fs.mkdirSync("output", { recursive: true });
     const filename = `image_${Date.now()}.jpg`;
     const filepath = path.join("output", filename);
     fs.writeFileSync(filepath, imageBuffer);
 
-    if (!historyByUser[userId]) {
-      historyByUser[userId] = [];
-    }
+    // Guardar en Supabase
+    const { error } = await supabase.from("historial").insert([
+      {
+        prompt,
+        image_url: `/output/${filename}`, // tu backend lo sirve
+        user_id: userId,
+        created_at: new Date().toISOString(),
+      },
+    ]);
 
-    historyByUser[userId].push({
-      prompt,
-      imageUrl,
-      savedAs: filename,
-      timestamp: Date.now(),
-    });
+    if (error) {
+      console.error("❌ Error al guardar en Supabase:", error.message);
+    }
 
     res.json({
       message: "Imagen generada correctamente",
-      imageUrl,
-      savedAs: filepath,
+      imageUrl: `/output/${filename}`,
+      savedAs: filename,
     });
   } catch (err) {
     console.error("❌ Error inesperado:", err);
@@ -116,73 +121,85 @@ app.post("/generate", async (req, res) => {
   }
 });
 
-app.get("/history/:userId", (req, res) => {
+// CONSULTA DE HISTORIAL
+app.get("/history/:userId", async (req, res) => {
   const userId = req.params.userId;
-  res.json(historyByUser[userId] || []);
+
+  const { data, error } = await supabase
+    .from("historial")
+    .select("*")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    return res.status(500).json({ error: "No se pudo obtener el historial" });
+  }
+
+  res.json(data || []);
 });
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`✅ Servidor escuchando en http://localhost:${PORT}`);
+// VERIFICAR SI PUEDE GENERAR
+app.get('/can-generate/:userId', async (req, res) => {
+  const { userId } = req.params;
+  if (!userId) return res.status(400).json({ error: 'Falta userId' });
+
+  const hoy = new Date();
+  hoy.setHours(0, 0, 0, 0);
+  const fechaISO = hoy.toISOString();
+
+  const { count, error } = await supabase
+    .from('historial')
+    .select('*', { count: 'exact', head: true })
+    .eq('user_id', userId)
+    .gte('created_at', fechaISO);
+
+  if (error) {
+    return res.status(500).json({ error: 'Error al consultar historial' });
+  }
+
+  const limite = 3;
+  const restantes = Math.max(0, limite - count);
+
+  res.json({
+    allowed: restantes > 0,
+    restantes,
+  });
 });
 
-
-app.post("/delete", (req, res) => {
+// BORRAR IMAGEN (local y Supabase)
+app.post("/delete", async (req, res) => {
   const { userId, savedAs } = req.body;
 
   if (!userId || !savedAs) {
-    return res.status(400).json({ error: "Faltan datos: userId o savedAs" });
+    return res.status(400).json({ error: "Faltan datos" });
   }
 
   const filePath = path.join("output", savedAs);
 
   try {
-    // Borrar archivo físico
     if (fs.existsSync(filePath)) {
       fs.unlinkSync(filePath);
     }
 
-    // Validar existencia
-    if (!historyByUser[userId]) {
-      return res.status(404).json({ error: "Historial no encontrado para el usuario" });
+    // También eliminar de Supabase
+    const { error } = await supabase
+      .from("historial")
+      .delete()
+      .eq("user_id", userId)
+      .eq("image_url", `/output/${savedAs}`);
+
+    if (error) {
+      console.error("⚠️ No se pudo borrar de Supabase:", error.message);
     }
-
-    const historialOriginal = historyByUser[userId];
-    const nuevoHistorial = historialOriginal.filter(img => img.savedAs !== savedAs);
-
-    // Validar si realmente eliminó algo
-    if (nuevoHistorial.length === historialOriginal.length) {
-      return res.status(404).json({ error: "Imagen no encontrada en historial" });
-    }
-
-    historyByUser[userId] = nuevoHistorial;
 
     res.json({ message: "Imagen eliminada correctamente" });
   } catch (err) {
-    console.error("❌ Error al eliminar imagen:", err);
-    res.status(500).json({ error: "Error interno al eliminar imagen" });
+    res.status(500).json({ error: "Error al eliminar imagen" });
   }
 });
 
-app.get('/can-generate/:userId', (req, res) => {
-  const { userId } = req.params;
-  if (!userId) return res.status(400).json({ error: 'Falta userId' });
-
-  const historial = historyByUser[userId] || [];
-
-  const hoy = new Date();
-  hoy.setHours(0, 0, 0, 0);
-  const hoyTimestamp = hoy.getTime();
-
-  const generadasHoy = historial.filter(img => img.timestamp >= hoyTimestamp);
-
-  const limite = 3; // máx. gratuito diario
-  const restantes = limite - generadasHoy.length;
-
-  res.json({
-    allowed: restantes > 0,
-    restantes: restantes > 0 ? restantes : 0,
-  });
+// INICIO
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`✅ Servidor escuchando en http://localhost:${PORT}`);
 });
-
-
