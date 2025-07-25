@@ -14,7 +14,7 @@ app.use(express.json());
 // Middleware para exponer imágenes guardadas
 app.use("/output", express.static("output"));
 
-// Historial global separado por usuario
+// Historial global separado por usuario (temporal en RAM)
 const historyByUser = {};
 
 // Endpoint para generar imagen
@@ -39,8 +39,6 @@ app.post("/generate", async (req, res) => {
     });
 
     const data = await response.json();
-
-
     console.log("🔍 Respuesta de Replicate:", data);
 
     if (!data?.urls?.get) {
@@ -61,21 +59,36 @@ app.post("/generate", async (req, res) => {
     }
 
     const imageUrl = result?.output?.[0];
-    if (!imageUrl) {
-      return res.status(500).json({ error: "No se generó la imagen" });
+
+    if (!imageUrl || typeof imageUrl !== "string" || !imageUrl.startsWith("http")) {
+      console.error("🛑 Imagen no generada - respuesta final:", JSON.stringify(result, null, 2));
+      return res.status(500).json({ error: "No se generó una imagen válida", detail: result });
     }
 
+    // Descargar imagen
     const imageBuffer = await (await fetch(imageUrl)).buffer();
+
+    if (!imageBuffer || !imageBuffer.length) {
+      return res.status(500).json({ error: "La imagen descargada está vacía" });
+    }
+
+    // Guardar localmente
     fs.mkdirSync("output", { recursive: true });
     const filename = `image_${Date.now()}.jpg`;
     const filepath = path.join("output", filename);
     fs.writeFileSync(filepath, imageBuffer);
 
-    // Guardar en historial
+    // Guardar en historial (en memoria por usuario)
     if (!historyByUser[userId]) {
       historyByUser[userId] = [];
     }
-    historyByUser[userId].push({ prompt, imageUrl, savedAs: filename, timestamp: Date.now() });
+
+    historyByUser[userId].push({
+      prompt,
+      imageUrl,
+      savedAs: filename,
+      timestamp: Date.now(),
+    });
 
     res.json({
       message: "Imagen generada correctamente",
@@ -83,8 +96,8 @@ app.post("/generate", async (req, res) => {
       savedAs: filepath,
     });
   } catch (err) {
-    console.error("❌ Error:", err);
-    res.status(500).json({ error: "Error interno" });
+    console.error("❌ Error inesperado:", err);
+    res.status(500).json({ error: "Error interno del servidor" });
   }
 });
 
