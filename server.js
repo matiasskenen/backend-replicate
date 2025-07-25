@@ -180,17 +180,37 @@ app.post('/sumar-bonus', async (req, res) => {
   const { userId } = req.body;
   if (!userId) return res.status(400).json({ error: 'Falta userId' });
 
-  const { error } = await supabase
-    .from('bonus_generaciones')
-    .upsert({ user_id: userId, bonus: 1 }, { onConflict: 'user_id' });
+  try {
+    // Leer el bonus actual
+    const { data, error: fetchError } = await supabase
+      .from('bonus_generaciones')
+      .select('bonus')
+      .eq('user_id', userId)
+      .single();
 
-  if (error) {
-    console.error('❌ Error al actualizar bonus:', error.message);
-    return res.status(500).json({ error: 'Error al guardar bonus' });
+    if (fetchError && fetchError.code !== 'PGRST116') {
+      console.error('❌ Error al obtener bonus:', fetchError.message);
+      return res.status(500).json({ error: 'Error al obtener bonus' });
+    }
+
+    const nuevoBonus = (data?.bonus || 0) + 1;
+
+    const { error: upsertError } = await supabase
+      .from('bonus_generaciones')
+      .upsert({ user_id: userId, bonus: nuevoBonus }, { onConflict: 'user_id' });
+
+    if (upsertError) {
+      console.error('❌ Error al actualizar bonus:', upsertError.message);
+      return res.status(500).json({ error: 'Error al guardar bonus' });
+    }
+
+    res.json({ message: 'Bonus actualizado correctamente', bonus: nuevoBonus });
+  } catch (err) {
+    console.error('❌ Error inesperado en sumar-bonus:', err);
+    res.status(500).json({ error: 'Error inesperado' });
   }
-
-  res.json({ message: 'Bonus actualizado' });
 });
+
 
 
 
