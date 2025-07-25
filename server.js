@@ -137,17 +137,30 @@ app.post("/delete", (req, res) => {
   const filePath = path.join("output", savedAs);
 
   try {
+    // Borrar archivo físico
     if (fs.existsSync(filePath)) {
       fs.unlinkSync(filePath);
     }
 
-    if (historyByUser[userId]) {
-      historyByUser[userId] = historyByUser[userId].filter(img => img.savedAs !== savedAs);
+    // Validar existencia
+    if (!historyByUser[userId]) {
+      return res.status(404).json({ error: "Historial no encontrado para el usuario" });
     }
+
+    const historialOriginal = historyByUser[userId];
+    const nuevoHistorial = historialOriginal.filter(img => img.savedAs !== savedAs);
+
+    // Validar si realmente eliminó algo
+    if (nuevoHistorial.length === historialOriginal.length) {
+      return res.status(404).json({ error: "Imagen no encontrada en historial" });
+    }
+
+    historyByUser[userId] = nuevoHistorial;
 
     res.json({ message: "Imagen eliminada correctamente" });
   } catch (err) {
     console.error("❌ Error al eliminar imagen:", err);
-    res.status(500).json({ error: "Error al eliminar la imagen" });
+    res.status(500).json({ error: "Error interno al eliminar imagen" });
   }
 });
+
