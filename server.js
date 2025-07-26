@@ -14,22 +14,26 @@ const supabase = createClient(
 );
 
 const app = express();
-const baseUrl = 'https://backend-replicate-ekci.onrender.com';
+const baseUrl = 'https://backend-replicate-ekci.onrender.com'; // Asegúrate de que esta URL base sea correcta para tu despliegue
 
 app.use(cors());
 app.use(express.json());
 app.use("/output", express.static("output"));
 
+// Nota: Los styleTemplates están pensados para prompts. 
+// Para la API de Imagen de Google, los "negative prompts" no son un parámetro directo,
+// se suelen integrar en el prompt principal o se omiten.
 const styleTemplates = {
   "Realista": (text) =>
-    `photo-realistic render of ${text}, studio lighting, 8k, no text, no humans, ultra detail`,
+    `photo-realistic render of ${text}, studio lighting, 8k, ultra detail`,
   "Cuento infantil": (text) =>
-    `storybook illustration of ${text}, colorful, watercolor, children's book style, soft light, no text, no humans`,
+    `storybook illustration of ${text}, colorful, watercolor, children's book style, soft light`,
   "Surrealista": (text) =>
-    `surrealist painting of ${text}, dreamlike composition, Salvador Dalí style, vivid colors, no humans, no text`,
+    `surrealist painting of ${text}, dreamlike composition, Salvador Dalí style, vivid colors`,
 };
 
-const negativePrompt = "realistic human, skin, face, text, watermark";
+// La API de Imagen de Google no usa un negative_prompt explícito como Replicate/Stable Diffusion
+// const negativePrompt = "realistic human, skin, face, text, watermark"; 
 
 // GENERACIÓN
 app.post("/generate", async (req, res) => {
@@ -43,63 +47,54 @@ app.post("/generate", async (req, res) => {
   const finalPrompt = buildPrompt(prompt);
 
   try {
-    const response = await fetch("https://api.replicate.com/v1/predictions", {
+    // === CAMBIO CLAVE: Llamada a la API de Imagen de Google ===
+    const googleApiUrl = `https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-002:predict?key=${process.env.GOOGLE_API_KEY}`;
+    
+    const response = await fetch(googleApiUrl, {
       method: "POST",
       headers: {
-        Authorization: `Token ${process.env.REPLICATE_API_TOKEN}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        version: "ac732df83cea7fff18b8472768c88ad041fa750ff7682a21affe81863cbe77e4",
-        input: {
-          prompt: finalPrompt,
-          negative_prompt: negativePrompt,
-          width: 768,
-          height: 768,
-          guidance_scale: 7.5,
-          num_inference_steps: 50,
+        instances: {
+          prompt: finalPrompt // El prompt se envía directamente aquí
         },
+        parameters: {
+          "sampleCount": 1 // Puedes ajustar esto si quieres más de una imagen por solicitud
+        }
       }),
     });
 
     const data = await response.json();
-    if (!data?.urls?.get) {
-      return res.status(500).json({ error: "Fallo al crear predicción", detail: data });
+
+    // Manejo de errores de la API de Google
+    if (data.error) {
+      console.error("❌ Error de la API de Google:", data.error.message);
+      return res.status(data.error.code || 500).json({ error: "Error al generar imagen con Google API", detail: data.error.message });
     }
 
-    // Esperar resultado
-    let result;
-    let tries = 0;
-    while (!result?.output?.[0] && tries < 20) {
-      await new Promise((r) => setTimeout(r, 1500));
-      const poll = await fetch(data.urls.get, {
-        headers: {
-          Authorization: `Token ${process.env.REPLICATE_API_TOKEN}`,
-        },
-      });
-      result = await poll.json();
-      tries++;
+    // Extraer la imagen base64 de la respuesta
+    const base64Image = data?.predictions?.[0]?.bytesBase64Encoded;
+
+    if (!base64Image) {
+      return res.status(500).json({ error: "No se pudo obtener la imagen de la respuesta de Google API", detail: data });
     }
 
-    const imageUrl = result?.output?.[0];
-    if (!imageUrl || typeof imageUrl !== "string" || !imageUrl.startsWith("http")) {
-      return res.status(500).json({ error: "Imagen inválida", detail: result });
-    }
-
-    // Descargar imagen
-    const imageBuffer = await (await fetch(imageUrl)).buffer();
+    // Convertir base64 a Buffer
+    const imageBuffer = Buffer.from(base64Image, 'base64');
+    
     if (!imageBuffer?.length) {
       return res.status(500).json({ error: "La imagen descargada está vacía" });
     }
 
     // Guardar archivo localmente
     fs.mkdirSync("output", { recursive: true });
-    const filename = `image_${Date.now()}.jpg`;
+    const filename = `image_${Date.now()}.png`; // Cambiado a .png ya que la API devuelve png
     const filepath = path.join("output", filename);
     fs.writeFileSync(filepath, imageBuffer);
 
     // Guardar en Supabase
-    const { error } = await supabase.from("historial").insert([
+    const { error: supabaseError } = await supabase.from("historial").insert([
       {
         prompt,
         image_url: `${baseUrl}/output/${filename}`,
@@ -108,8 +103,8 @@ app.post("/generate", async (req, res) => {
       },
     ]);
 
-    if (error) {
-      console.error("❌ Error al guardar en Supabase:", error.message);
+    if (supabaseError) {
+      console.error("❌ Error al guardar en Supabase:", supabaseError.message);
     }
 
     res.json({
@@ -123,7 +118,7 @@ app.post("/generate", async (req, res) => {
   }
 });
 
-// CONSULTA DE HISTORIAL
+// CONSULTA DE HISTORIAL (sin cambios)
 app.get("/history/:userId", async (req, res) => {
   const userId = req.params.userId;
 
@@ -140,7 +135,7 @@ app.get("/history/:userId", async (req, res) => {
   res.json(data || []);
 });
 
-// VERIFICAR SI PUEDE GENERAR
+// VERIFICAR SI PUEDE GENERAR (sin cambios)
 app.get('/can-generate/:userId', async (req, res) => {
   const { userId } = req.params;
   if (!userId) return res.status(400).json({ error: 'Falta userId' });
@@ -178,6 +173,7 @@ app.get('/can-generate/:userId', async (req, res) => {
   });
 });
 
+// SUMAR BONUS (sin cambios)
 app.post('/sumar-bonus', async (req, res) => {
   const { userId } = req.body;
   if (!userId) return res.status(400).json({ error: 'Falta userId' });
@@ -221,11 +217,7 @@ app.post('/sumar-bonus', async (req, res) => {
   }
 });
 
-
-
-
-
-// BORRAR IMAGEN (local y Supabase)
+// BORRAR IMAGEN (local y Supabase) (sin cambios, excepto que ahora es PNG)
 app.post("/delete", async (req, res) => {
   const { userId, savedAs } = req.body;
 
@@ -245,7 +237,8 @@ app.post("/delete", async (req, res) => {
       .from("historial")
       .delete()
       .eq("user_id", userId)
-      .eq("image_url", `/output/${savedAs}`);
+      // Asegúrate de que la image_url coincida con lo que guardas
+      .eq("image_url", `${baseUrl}/output/${savedAs}`); 
 
     if (error) {
       console.error("⚠️ No se pudo borrar de Supabase:", error.message);
