@@ -64,8 +64,8 @@ app.post("/generate", async (req, res) => {
     // Define el ID del modelo y la versión.
     // Puedes encontrar la versión más reciente en la página del modelo en replicate.com,
     // por ejemplo, para SDXL base: https://replicate.com/stability-ai/sdxl
-    const modelIdentifier = "stability-ai/stable-diffusion"; // <-- ¡CAMBIO AQUÍ!
-    const modelVersion = "ac732df83cea7fff18b8472768c88ad041fa750ff7682a21affe81863cbe77e4"; // <-- ¡CAMBIO AQUÍ!
+    const modelIdentifier = "adirik/realvisxl-v3.0-turbo"; // <-- ¡CAMBIO AQUÍ!
+    const modelVersion = "3dc73c805b11b4b01a60555e532fd3ab3f0e60d26f6584d9b8ba7e1b95858243"; // <-- ¡CAMBIO AQUÍ!
 
     // Ejecuta la generación de imagen usando el cliente de Replicate
     // El método .run() maneja el polling internamente, lo que simplifica mucho el código.
@@ -75,8 +75,8 @@ app.post("/generate", async (req, res) => {
         input: {
           prompt: finalPrompt,
           negative_prompt: negativePromptBase, // Usamos el negative prompt definido
-          width: 512, // Resolución recomendada para SDXL
-          height: 512,
+          width: 1024, // Resolución recomendada para SDXL
+          height: 1024,
           num_outputs: 1, // Cantidad de imágenes a generar por solicitud
           num_inference_steps: 25, // Pasos de inferencia: más pasos pueden mejorar la calidad (pero son más lentos)
           guidance_scale: 7.5, // Cuánto la IA debe seguir el prompt (valores típicos entre 7 y 8.5)
